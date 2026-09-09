@@ -21,54 +21,61 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	}
 	const { id: userId, role } = locals.user;
 	const today = todayStr();
+	const manager = isManager(role);
 
-	const [todayEntry] = await db
-		.select()
-		.from(clockEntries)
-		.where(and(eq(clockEntries.userId, userId), eq(clockEntries.date, today)));
-
-	const myHistory = await db
-		.select()
-		.from(clockEntries)
-		.where(eq(clockEntries.userId, userId))
-		.orderBy(desc(clockEntries.date))
-		.limit(30);
-
-	if (!isManager(role)) {
-		return { todayEntry: todayEntry ?? null, myHistory, manager: false as const };
-	}
-
-	// Manager/admin also gets the all-staff, filterable history view.
+	// Manager/admin also gets the all-staff, filterable history view — figure
+	// out the filter params up front so every applicable query (including the
+	// manager-only ones) can fire in one Promise.all instead of one after
+	// another. The non-manager branches below just resolve to [] with no
+	// extra DB round trip.
 	const from = url.searchParams.get('from') || today;
 	const to = url.searchParams.get('to') || today;
 	const employeeIdParam = url.searchParams.get('employeeId');
 	const employeeId = employeeIdParam ? Number(employeeIdParam) : null;
 
-	const staffList = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.orderBy(users.fullName);
+	const teamConditions = [gte(clockEntries.date, from), lte(clockEntries.date, to)];
+	if (employeeId) teamConditions.push(eq(clockEntries.userId, employeeId));
 
-	const conditions = [gte(clockEntries.date, from), lte(clockEntries.date, to)];
-	if (employeeId) conditions.push(eq(clockEntries.userId, employeeId));
+	const [todayEntryRows, myHistory, staffList, teamHistory] = await Promise.all([
+		db
+			.select()
+			.from(clockEntries)
+			.where(and(eq(clockEntries.userId, userId), eq(clockEntries.date, today))),
+		db
+			.select()
+			.from(clockEntries)
+			.where(eq(clockEntries.userId, userId))
+			.orderBy(desc(clockEntries.date))
+			.limit(30),
+		manager
+			? db.select({ id: users.id, fullName: users.fullName }).from(users).orderBy(users.fullName)
+			: Promise.resolve([]),
+		manager
+			? db
+					.select({
+						id: clockEntries.id,
+						userId: clockEntries.userId,
+						fullName: users.fullName,
+						clockIn: clockEntries.clockIn,
+						clockOut: clockEntries.clockOut,
+						notes: clockEntries.notes,
+						date: clockEntries.date
+					})
+					.from(clockEntries)
+					.innerJoin(users, eq(clockEntries.userId, users.id))
+					.where(and(...teamConditions))
+					.orderBy(desc(clockEntries.date), users.fullName)
+			: Promise.resolve([])
+	]);
 
-	const teamHistory = await db
-		.select({
-			id: clockEntries.id,
-			userId: clockEntries.userId,
-			fullName: users.fullName,
-			clockIn: clockEntries.clockIn,
-			clockOut: clockEntries.clockOut,
-			notes: clockEntries.notes,
-			date: clockEntries.date
-		})
-		.from(clockEntries)
-		.innerJoin(users, eq(clockEntries.userId, users.id))
-		.where(and(...conditions))
-		.orderBy(desc(clockEntries.date), users.fullName);
+	const todayEntry = todayEntryRows[0] ?? null;
+
+	if (!manager) {
+		return { todayEntry, myHistory, manager: false as const };
+	}
 
 	return {
-		todayEntry: todayEntry ?? null,
+		todayEntry,
 		myHistory,
 		manager: true as const,
 		staffList,

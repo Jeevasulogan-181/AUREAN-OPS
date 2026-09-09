@@ -3,8 +3,9 @@
 Internal operations app — SvelteKit (Svelte 5 runes) + Neon Postgres + Drizzle ORM +
 Lucia-style DB-backed sessions + Tailwind CSS.
 
-**Status:** All 9 modules are built — Auth, Staff Management, Clock In/Out, Tasks,
-Projects, Calendar, Reminders, Drive, Word→PDF, and Chat.
+**Status:** All 9 original modules are built — Auth, Staff Management, Clock In/Out,
+Tasks, Projects, Calendar, Reminders, Drive, Word→PDF, and Chat — plus a Notes module
+added afterward.
 
 ## Setup
 
@@ -86,6 +87,9 @@ Projects, Calendar, Reminders, Drive, Word→PDF, and Chat.
   (there's no separate team/department table in the schema).
 - `src/routes/(app)/reminders` — personal reminders, optional link to one of the user's
   own tasks; sidebar shows a due-today-or-overdue count badge.
+- `src/routes/(app)/notes` — personal notes (title + free-text content), strictly
+  private like Reminders: no admin/manager override anywhere, ownership re-checked in
+  every action. Added after the original 9-module spec — see `drizzle/0001_*.sql`.
 - `src/routes/(app)/drive/[[folderId]]` — folder browser (breadcrumb, create folder,
   upload, delete), `src/routes/(app)/drive/download/[fileId]` — download endpoint.
   `src/lib/server/fileStorage.ts` is the storage abstraction (see "Notes" below).

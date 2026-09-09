@@ -35,40 +35,43 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
 	const project = await loadProjectOr404(projectId);
 
-	const members = await db
-		.select({
-			userId: projectMembers.userId,
-			roleInProject: projectMembers.roleInProject,
-			fullName: users.fullName,
-			username: users.username
-		})
-		.from(projectMembers)
-		.innerJoin(users, eq(projectMembers.userId, users.id))
-		.where(eq(projectMembers.projectId, projectId))
-		.orderBy(users.fullName);
-
+	// members/projectTasks/the raw staff list don't depend on each other —
+	// only the final `.filter()` below needs `members` already resolved.
 	const assignee = alias(users, 'assignee');
-	const projectTasks = await db
-		.select({
-			id: tasks.id,
-			title: tasks.title,
-			status: tasks.status,
-			priority: tasks.priority,
-			dueDate: tasks.dueDate,
-			assignedTo: tasks.assignedTo,
-			assigneeName: assignee.fullName
-		})
-		.from(tasks)
-		.leftJoin(assignee, eq(tasks.assignedTo, assignee.id))
-		.where(eq(tasks.projectId, projectId))
-		.orderBy(desc(tasks.createdAt));
+	const [members, projectTasks, availableStaff] = await Promise.all([
+		db
+			.select({
+				userId: projectMembers.userId,
+				roleInProject: projectMembers.roleInProject,
+				fullName: users.fullName,
+				username: users.username
+			})
+			.from(projectMembers)
+			.innerJoin(users, eq(projectMembers.userId, users.id))
+			.where(eq(projectMembers.projectId, projectId))
+			.orderBy(users.fullName),
+		db
+			.select({
+				id: tasks.id,
+				title: tasks.title,
+				status: tasks.status,
+				priority: tasks.priority,
+				dueDate: tasks.dueDate,
+				assignedTo: tasks.assignedTo,
+				assigneeName: assignee.fullName
+			})
+			.from(tasks)
+			.leftJoin(assignee, eq(tasks.assignedTo, assignee.id))
+			.where(eq(tasks.projectId, projectId))
+			.orderBy(desc(tasks.createdAt)),
+		db
+			.select({ id: users.id, fullName: users.fullName })
+			.from(users)
+			.where(eq(users.isActive, true))
+			.orderBy(users.fullName)
+	]);
 
 	const memberIds = new Set(members.map((m) => m.userId));
-	const availableStaff = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.where(eq(users.isActive, true))
-		.orderBy(users.fullName);
 
 	const canManage = isManager(locals.user.role) || project.ownerId === locals.user.id;
 

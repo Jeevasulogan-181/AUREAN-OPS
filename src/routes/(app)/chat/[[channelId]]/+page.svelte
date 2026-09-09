@@ -55,7 +55,7 @@
 	<title>Chat — Ops Hub</title>
 </svelte:head>
 
-<div class="flex h-screen">
+<div class="flex h-full">
 	<div class="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white">
 		<div class="flex items-center justify-between border-b border-slate-200 px-4 py-4">
 			<h1 class="text-lg font-semibold text-slate-900">Chat</h1>

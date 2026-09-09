@@ -9,30 +9,31 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw redirect(302, '/login');
 	}
 
-	const rows = await db
-		.select({
-			id: projects.id,
-			name: projects.name,
-			description: projects.description,
-			status: projects.status,
-			ownerId: projects.ownerId,
-			ownerName: users.fullName,
-			createdAt: projects.createdAt
-		})
-		.from(projects)
-		.innerJoin(users, eq(projects.ownerId, users.id))
-		.orderBy(desc(projects.createdAt));
-
-	const memberCounts = await db
-		.select({ projectId: projectMembers.projectId, count: sql<number>`count(*)::int` })
-		.from(projectMembers)
-		.groupBy(projectMembers.projectId);
-
-	const taskCounts = await db
-		.select({ projectId: tasks.projectId, count: sql<number>`count(*)::int` })
-		.from(tasks)
-		.where(isNotNull(tasks.projectId))
-		.groupBy(tasks.projectId);
+	// All three are independent aggregate queries — fire them concurrently.
+	const [rows, memberCounts, taskCounts] = await Promise.all([
+		db
+			.select({
+				id: projects.id,
+				name: projects.name,
+				description: projects.description,
+				status: projects.status,
+				ownerId: projects.ownerId,
+				ownerName: users.fullName,
+				createdAt: projects.createdAt
+			})
+			.from(projects)
+			.innerJoin(users, eq(projects.ownerId, users.id))
+			.orderBy(desc(projects.createdAt)),
+		db
+			.select({ projectId: projectMembers.projectId, count: sql<number>`count(*)::int` })
+			.from(projectMembers)
+			.groupBy(projectMembers.projectId),
+		db
+			.select({ projectId: tasks.projectId, count: sql<number>`count(*)::int` })
+			.from(tasks)
+			.where(isNotNull(tasks.projectId))
+			.groupBy(tasks.projectId)
+	]);
 
 	const memberCountByProject = new Map(memberCounts.map((r) => [r.projectId, r.count]));
 	const taskCountByProject = new Map(taskCounts.map((r) => [r.projectId as number, r.count]));

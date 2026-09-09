@@ -25,35 +25,16 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		throw error(404, 'Folder not found');
 	}
 
-	let currentFolder: Awaited<ReturnType<typeof loadFolderOr404>> | null = null;
-	const breadcrumb: { id: number; name: string }[] = [];
-
-	if (folderId) {
-		currentFolder = await loadFolderOr404(folderId);
-		if (!canViewFolder(currentFolder, user)) {
-			throw error(403, 'You do not have access to this folder');
-		}
-
-		// Walk up parentFolderId to build the breadcrumb trail.
-		const chain = [currentFolder];
-		let cursor = currentFolder;
-		while (cursor.parentFolderId) {
-			const [parent] = await db.select().from(folders).where(eq(folders.id, cursor.parentFolderId));
-			if (!parent) break;
-			chain.unshift(parent);
-			cursor = parent;
-		}
-		breadcrumb.push(...chain.map((f) => ({ id: f.id, name: f.name })));
-	}
-
-	const subfolderRows = await db
+	// None of these three depend on the breadcrumb walk below (only on
+	// `folderId`, already known) — kick them off now so they run concurrently
+	// with that walk instead of waiting behind it.
+	const subfoldersPromise = db
 		.select()
 		.from(folders)
 		.where(folderId ? eq(folders.parentFolderId, folderId) : isNull(folders.parentFolderId));
-
 	// Column list explicitly excludes `content` — listing a folder should
 	// never pull file bytes over the wire.
-	const fileRows = await db
+	const filesPromise = db
 		.select({
 			id: files.id,
 			filename: files.filename,
@@ -68,6 +49,39 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 		.leftJoin(users, eq(files.ownerId, users.id))
 		.where(folderId ? eq(files.folderId, folderId) : isNull(files.folderId))
 		.orderBy(files.filename);
+	const staffListPromise = db
+		.select({ id: users.id, fullName: users.fullName })
+		.from(users)
+		.where(eq(users.isActive, true))
+		.orderBy(users.fullName);
+
+	let currentFolder: Awaited<ReturnType<typeof loadFolderOr404>> | null = null;
+	const breadcrumb: { id: number; name: string }[] = [];
+
+	if (folderId) {
+		currentFolder = await loadFolderOr404(folderId);
+		if (!canViewFolder(currentFolder, user)) {
+			throw error(403, 'You do not have access to this folder');
+		}
+
+		// Walk up parentFolderId to build the breadcrumb trail. Each level
+		// genuinely depends on the previous one, so this part stays sequential.
+		const chain = [currentFolder];
+		let cursor = currentFolder;
+		while (cursor.parentFolderId) {
+			const [parent] = await db.select().from(folders).where(eq(folders.id, cursor.parentFolderId));
+			if (!parent) break;
+			chain.unshift(parent);
+			cursor = parent;
+		}
+		breadcrumb.push(...chain.map((f) => ({ id: f.id, name: f.name })));
+	}
+
+	const [subfolderRows, fileRows, staffList] = await Promise.all([
+		subfoldersPromise,
+		filesPromise,
+		staffListPromise
+	]);
 
 	// `canManage` here only drives which buttons the UI shows — every action
 	// below re-checks the same rule server-side before touching the DB.
@@ -81,12 +95,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 	);
 
 	const canManageHere = currentFolder ? canManageFolder(currentFolder, user) : true;
-
-	const staffList = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.where(eq(users.isActive, true))
-		.orderBy(users.fullName);
 
 	return {
 		folderId,

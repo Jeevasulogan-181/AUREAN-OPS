@@ -34,36 +34,37 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const assignee = alias(users, 'assignee');
 
-	const rows = await db
-		.select({
-			id: tasks.id,
-			title: tasks.title,
-			description: tasks.description,
-			status: tasks.status,
-			priority: tasks.priority,
-			dueDate: tasks.dueDate,
-			createdAt: tasks.createdAt,
-			assignedTo: tasks.assignedTo,
-			createdBy: tasks.createdBy,
-			projectId: tasks.projectId,
-			assigneeName: assignee.fullName,
-			projectName: projects.name
-		})
-		.from(tasks)
-		.leftJoin(assignee, eq(tasks.assignedTo, assignee.id))
-		.leftJoin(projects, eq(tasks.projectId, projects.id))
-		.orderBy(desc(tasks.createdAt));
-
-	const staffList = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.where(eq(users.isActive, true))
-		.orderBy(users.fullName);
-
-	const projectList = await db
-		.select({ id: projects.id, name: projects.name })
-		.from(projects)
-		.orderBy(projects.name);
+	// None of these three queries depend on each other — running them
+	// concurrently instead of one-after-another cuts this page's DB time
+	// from ~3 round trips to ~1 (each round trip to Neon's HTTP endpoint
+	// costs real, fixed latency regardless of query size).
+	const [rows, staffList, projectList] = await Promise.all([
+		db
+			.select({
+				id: tasks.id,
+				title: tasks.title,
+				description: tasks.description,
+				status: tasks.status,
+				priority: tasks.priority,
+				dueDate: tasks.dueDate,
+				createdAt: tasks.createdAt,
+				assignedTo: tasks.assignedTo,
+				createdBy: tasks.createdBy,
+				projectId: tasks.projectId,
+				assigneeName: assignee.fullName,
+				projectName: projects.name
+			})
+			.from(tasks)
+			.leftJoin(assignee, eq(tasks.assignedTo, assignee.id))
+			.leftJoin(projects, eq(tasks.projectId, projects.id))
+			.orderBy(desc(tasks.createdAt)),
+		db
+			.select({ id: users.id, fullName: users.fullName })
+			.from(users)
+			.where(eq(users.isActive, true))
+			.orderBy(users.fullName),
+		db.select({ id: projects.id, name: projects.name }).from(projects).orderBy(projects.name)
+	]);
 
 	return { tasks: rows, staffList, projectList };
 };

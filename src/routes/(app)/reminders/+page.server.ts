@@ -17,19 +17,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 	const userId = locals.user.id;
 
-	const myReminders = await db
-		.select()
-		.from(reminders)
-		.where(eq(reminders.userId, userId))
-		.orderBy(reminders.remindAt);
-
-	// "The user's own tasks" — either assigned to them or created by them —
-	// for the optional task-link dropdown.
-	const myTasks = await db
-		.select({ id: tasks.id, title: tasks.title })
-		.from(tasks)
-		.where(or(eq(tasks.assignedTo, userId), eq(tasks.createdBy, userId)))
-		.orderBy(tasks.title);
+	// Independent queries — run concurrently rather than paying two separate
+	// round trips to Neon back to back.
+	const [myReminders, myTasks] = await Promise.all([
+		db.select().from(reminders).where(eq(reminders.userId, userId)).orderBy(reminders.remindAt),
+		// "The user's own tasks" — either assigned to them or created by them —
+		// for the optional task-link dropdown.
+		db
+			.select({ id: tasks.id, title: tasks.title })
+			.from(tasks)
+			.where(or(eq(tasks.assignedTo, userId), eq(tasks.createdBy, userId)))
+			.orderBy(tasks.title)
+	]);
 
 	return { reminders: myReminders, myTasks };
 };

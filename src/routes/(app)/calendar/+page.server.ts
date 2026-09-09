@@ -47,21 +47,26 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
 	const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 
-	const rows = await db
-		.select({
-			id: calendarEvents.id,
-			title: calendarEvents.title,
-			description: calendarEvents.description,
-			startTime: calendarEvents.startTime,
-			endTime: calendarEvents.endTime,
-			visibility: calendarEvents.visibility,
-			createdBy: calendarEvents.createdBy,
-			creatorName: users.fullName,
-			creatorDepartment: users.department
-		})
-		.from(calendarEvents)
-		.leftJoin(users, eq(calendarEvents.createdBy, users.id))
-		.where(and(lte(calendarEvents.startTime, monthEnd), gte(calendarEvents.endTime, monthStart)));
+	// staffList doesn't depend on the month's events at all, so it can run
+	// concurrently with that query instead of waiting behind it.
+	const [rows, staffList] = await Promise.all([
+		db
+			.select({
+				id: calendarEvents.id,
+				title: calendarEvents.title,
+				description: calendarEvents.description,
+				startTime: calendarEvents.startTime,
+				endTime: calendarEvents.endTime,
+				visibility: calendarEvents.visibility,
+				createdBy: calendarEvents.createdBy,
+				creatorName: users.fullName,
+				creatorDepartment: users.department
+			})
+			.from(calendarEvents)
+			.leftJoin(users, eq(calendarEvents.createdBy, users.id))
+			.where(and(lte(calendarEvents.startTime, monthEnd), gte(calendarEvents.endTime, monthStart))),
+		db.select({ id: users.id, fullName: users.fullName }).from(users).where(eq(users.isActive, true)).orderBy(users.fullName)
+	]);
 
 	const eventIds = rows.map((r) => r.id);
 	const attendeeRows = eventIds.length
@@ -100,12 +105,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			if (e.visibility === 'team' && department && e.creatorDepartment === department) return true;
 			return false;
 		});
-
-	const staffList = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.where(eq(users.isActive, true))
-		.orderBy(users.fullName);
 
 	return {
 		events,

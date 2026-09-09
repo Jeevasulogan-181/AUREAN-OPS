@@ -37,27 +37,37 @@ export const load: PageServerLoad = async ({ locals, params, depends }) => {
 	// swapping to WebSockets/SSE later replaces this dependency entirely.
 	depends('app:chat-messages');
 
+	// Doesn't depend on anything below — kick it off now so it overlaps with
+	// the membership/channel/message lookups instead of waiting behind them.
+	const staffListPromise = db
+		.select({ id: users.id, fullName: users.fullName })
+		.from(users)
+		.where(eq(users.isActive, true))
+		.orderBy(users.fullName);
+
 	const memberOf = await db
 		.select({ channelId: chatChannelMembers.channelId })
 		.from(chatChannelMembers)
 		.where(eq(chatChannelMembers.userId, userId));
 	const myChannelIds = memberOf.map((r) => r.channelId);
 
-	const channelRows = myChannelIds.length
-		? await db.select().from(chatChannels).where(inArray(chatChannels.id, myChannelIds))
-		: [];
-
-	const memberRows = myChannelIds.length
-		? await db
-				.select({
-					channelId: chatChannelMembers.channelId,
-					userId: chatChannelMembers.userId,
-					fullName: users.fullName
-				})
-				.from(chatChannelMembers)
-				.innerJoin(users, eq(chatChannelMembers.userId, users.id))
-				.where(inArray(chatChannelMembers.channelId, myChannelIds))
-		: [];
+	// Both depend only on myChannelIds, not on each other.
+	const [channelRows, memberRows] = await Promise.all([
+		myChannelIds.length
+			? db.select().from(chatChannels).where(inArray(chatChannels.id, myChannelIds))
+			: Promise.resolve([]),
+		myChannelIds.length
+			? db
+					.select({
+						channelId: chatChannelMembers.channelId,
+						userId: chatChannelMembers.userId,
+						fullName: users.fullName
+					})
+					.from(chatChannelMembers)
+					.innerJoin(users, eq(chatChannelMembers.userId, users.id))
+					.where(inArray(chatChannelMembers.channelId, myChannelIds))
+			: Promise.resolve([])
+	]);
 
 	const membersByChannel = new Map<number, typeof memberRows>();
 	for (const m of memberRows) {
@@ -125,11 +135,7 @@ export const load: PageServerLoad = async ({ locals, params, depends }) => {
 			.orderBy(chatMessages.createdAt);
 	}
 
-	const staffList = await db
-		.select({ id: users.id, fullName: users.fullName })
-		.from(users)
-		.where(eq(users.isActive, true))
-		.orderBy(users.fullName);
+	const staffList = await staffListPromise;
 
 	return {
 		groupChannels,

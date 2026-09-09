@@ -170,6 +170,21 @@ export const reminders = pgTable('reminders', {
 });
 
 // ---------------------------------------------------------------------------
+// Notes — personal, private scratchpad (no sharing concept, unlike Drive)
+// ---------------------------------------------------------------------------
+
+export const notes = pgTable('notes', {
+	id: serial('id').primaryKey(),
+	userId: integer('user_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	title: text('title').notNull(),
+	content: text('content').notNull().default(''),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+// ---------------------------------------------------------------------------
 // Drive: folders + files
 // ---------------------------------------------------------------------------
 
