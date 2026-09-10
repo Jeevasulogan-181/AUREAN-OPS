@@ -35,7 +35,18 @@
 		{ label: 'Chat', href: '/chat', icon: MessageSquare, built: true }
 	];
 
+	function isActive(href: string): boolean {
+		return page.url.pathname === href || (href !== '/' && page.url.pathname.startsWith(href + '/'));
+	}
+
 	const isAdmin = $derived(user?.role === 'superadmin');
+
+	// The rail is icon-only, so the top bar carries the current section's
+	// name instead — the one piece of the old text sidebar this layout would
+	// otherwise lose entirely.
+	const pageTitle = $derived(
+		nav.find((item) => isActive(item.href))?.label ?? (isActive('/staff') ? 'Manage Staff' : 'Ops Hub')
+	);
 
 	const initials = $derived(
 		(user?.fullName ?? '')
@@ -53,76 +64,69 @@
 	});
 </script>
 
+{#snippet railIcon(item: { label: string; href: string; icon: Component }, badge?: number)}
+	{@const active = isActive(item.href)}
+	<a
+		href={item.href}
+		aria-label={item.label}
+		class="group relative flex h-11 w-11 items-center justify-center rounded-xl transition {active
+			? 'bg-white text-indigo-700'
+			: 'text-indigo-200 hover:bg-white/10 hover:text-white'}"
+	>
+		<item.icon size={20} />
+		{#if badge && badge > 0}
+			<span
+				class="absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white"
+			>
+				{badge}
+			</span>
+		{/if}
+		<span
+			class="pointer-events-none absolute left-full z-20 ml-3 rounded-md bg-slate-900 px-2 py-1 text-xs font-medium whitespace-nowrap text-white opacity-0 shadow-lg transition group-hover:opacity-100"
+		>
+			{item.label}
+		</span>
+	</a>
+{/snippet}
+
 <div class="flex h-screen overflow-hidden bg-slate-50">
-	<aside class="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white">
-		<div class="flex items-center gap-2 border-b border-slate-200 px-5 py-4">
-			<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
-				<Building2 size={16} />
-			</div>
-			<span class="text-base font-semibold text-slate-900">Ops Hub</span>
+	<!-- Icon-only rail: primary navigation, always visible. No overflow-y
+	     here — with ~11 icons at 48px each this never needs to scroll, and
+	     `overflow` on this element would clip the hover tooltips, which
+	     pop out past the rail's own right edge. -->
+	<aside class="flex w-16 shrink-0 flex-col items-center gap-1 bg-indigo-950 py-3">
+		<div class="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500 text-white">
+			<Building2 size={20} />
 		</div>
 
-		<nav class="flex-1 space-y-0.5 px-3 py-4">
+		<nav class="flex flex-1 flex-col items-center gap-1">
 			{#each nav as item (item.href)}
 				{#if item.built}
-					{@const active =
-						page.url.pathname === item.href ||
-						(item.href !== '/' && page.url.pathname.startsWith(item.href + '/'))}
-					<a
-						href={item.href}
-						class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition {active
-							? 'bg-indigo-600 text-white'
-							: 'text-slate-600 hover:bg-slate-100'}"
-					>
-						<item.icon size={17} class="shrink-0" />
-						<span class="flex-1 truncate">{item.label}</span>
-						{#if item.href === '/reminders' && data.dueReminderCount > 0}
-							<span
-								class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold {active
-									? 'bg-white/20 text-white'
-									: 'bg-red-100 text-red-700'}"
-							>
-								{data.dueReminderCount}
-							</span>
-						{/if}
-					</a>
+					{@render railIcon(item, item.href === '/reminders' ? data.dueReminderCount : undefined)}
 				{:else}
 					<span
-						class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-300"
-						title="Coming soon"
+						class="relative flex h-11 w-11 items-center justify-center rounded-xl text-indigo-400/50"
+						title="{item.label} — coming soon"
 					>
-						<item.icon size={17} class="shrink-0" />
-						<span class="flex-1 truncate">{item.label}</span>
-						<span class="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400">
-							soon
-						</span>
+						<item.icon size={20} />
 					</span>
 				{/if}
 			{/each}
-
-			{#if isAdmin}
-				<div class="mt-4 border-t border-slate-200 pt-4">
-					<p class="px-3 pb-1 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">Admin</p>
-					<a
-						href="/staff"
-						class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition {page.url
-							.pathname === '/staff'
-							? 'bg-indigo-600 text-white'
-							: 'text-slate-600 hover:bg-slate-100'}"
-					>
-						<Users size={17} class="shrink-0" />
-						Manage Staff
-					</a>
-				</div>
-			{/if}
 		</nav>
+
+		{#if isAdmin}
+			<div class="mt-1 flex flex-col items-center gap-1 border-t border-white/10 pt-2">
+				{@render railIcon({ label: 'Manage Staff', href: '/staff', icon: Users })}
+			</div>
+		{/if}
 	</aside>
 
 	<div class="flex min-w-0 flex-1 flex-col">
-		<header class="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
-			<p class="hidden text-sm text-slate-500 sm:block">{todayLabel}</p>
+		<header class="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6">
+			<h1 class="text-sm font-semibold text-slate-900">{pageTitle}</h1>
 
-			<div class="ml-auto flex items-center gap-3">
+			<div class="flex items-center gap-3">
+				<p class="hidden text-sm text-slate-500 sm:block">{todayLabel}</p>
 				<div class="flex items-center gap-2.5">
 					<div
 						class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700"
